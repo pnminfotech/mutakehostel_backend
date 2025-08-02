@@ -56,34 +56,47 @@ cron.schedule("0 0 * * *", async () => {
 
 const getNextSrNo = async (req, res) => {
   try {
-    const activeCount = await Form.countDocuments();
-    const archivedCount = await Archive.countDocuments();
-    const nextSrNo = (activeCount + archivedCount + 1).toString();
+    const latestForm = await Form.findOne().sort({ srNo: -1 }).limit(1);
+    const latestArchive = await Archive.findOne().sort({ srNo: -1 }).limit(1);
 
+    const lastSrNo = Math.max(
+      latestForm?.srNo || 0,
+      latestArchive?.srNo || 0
+    );
+
+    const nextSrNo = lastSrNo + 1;
     res.status(200).json({ nextSrNo });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching Sr. No.', error });
+    res.status(500).json({ message: 'Error fetching Sr. No.', error: error.message });
   }
 };
+
 
 const saveForm = async (req, res) => {
   try {
-    // Count total records from both collections
-    const activeCount = await Form.countDocuments();
-    const archivedCount = await Archive.countDocuments();
-    const totalCount = activeCount + archivedCount + 1; // New Sr No.
+    // 🔁 Find the latest srNo from Form and Archive collections
+    const latestForm = await Form.findOne().sort({ srNo: -1 }).limit(1);
+    const latestArchive = await Archive.findOne().sort({ srNo: -1 }).limit(1);
 
-    // Assign srNo automatically
-    req.body.srNo = totalCount.toString(); 
+    const lastSrNo = Math.max(
+      Number(latestForm?.srNo || 0),
+      Number(latestArchive?.srNo || 0)
+    );
+
+    req.body.srNo = (lastSrNo + 1).toString();  // ✅ Always unique
 
     const newForm = new Form(req.body);
     await newForm.save();
-    
+
     res.status(201).json({ message: 'Form submitted successfully', form: newForm });
   } catch (error) {
-    res.status(500).json({ message: 'Error submitting form', error });
+    console.error('❌ Error in saveForm:', error);
+    res.status(500).json({ message: 'Error submitting form', error: error.message });
   }
 };
+
+
+
 
 // @desc Get all forms from the database
 // @route GET /api/forms
