@@ -2,7 +2,7 @@ const Form = require('../models/formModels');
 const Archive = require('../models/archiveSchema');
 const DuplicateForm = require('../models/DuplicateForm'); // Import the DuplicateForm model
 const cron = require("node-cron");
-
+const Counter = require('../models/counterModel');
 
 const processLeave = async (req, res) => {
   try {
@@ -56,34 +56,24 @@ cron.schedule("0 0 * * *", async () => {
 
 const getNextSrNo = async (req, res) => {
   try {
-    const latestForm = await Form.findOne().sort({ srNo: -1 }).limit(1);
-    const latestArchive = await Archive.findOne().sort({ srNo: -1 }).limit(1);
-
-    const lastSrNo = Math.max(
-      latestForm?.srNo || 0,
-      latestArchive?.srNo || 0
-    );
-
-    const nextSrNo = lastSrNo + 1;
-    res.status(200).json({ nextSrNo });
+    const counter = await Counter.findOne({ name: "form_srno" });
+    const next = (counter?.seq || 0) + 1;
+    res.status(200).json({ nextSrNo: next });
   } catch (error) {
     res.status(500).json({ message: 'Error fetching Sr. No.', error: error.message });
   }
 };
 
-
 const saveForm = async (req, res) => {
   try {
-    // 🔁 Find the latest srNo from Form and Archive collections
-    const latestForm = await Form.findOne().sort({ srNo: -1 }).limit(1);
-    const latestArchive = await Archive.findOne().sort({ srNo: -1 }).limit(1);
-
-    const lastSrNo = Math.max(
-      Number(latestForm?.srNo || 0),
-      Number(latestArchive?.srNo || 0)
+    // Use atomic findOneAndUpdate to get the next srNo
+    const counter = await Counter.findOneAndUpdate(
+      { name: "form_srno" },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true } // Create if doesn't exist
     );
 
-    req.body.srNo = (lastSrNo + 1).toString();  // ✅ Always unique
+    req.body.srNo = counter.seq.toString(); // Always unique now
 
     const newForm = new Form(req.body);
     await newForm.save();
