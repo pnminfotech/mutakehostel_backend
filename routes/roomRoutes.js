@@ -4,25 +4,35 @@ const Room = require('../models/Room');
 
 // Get all rooms
 router.get('/', async (req, res) => {
-  const rooms = await Room.find();
-  res.json(rooms);
+  try {
+    const rooms = await Room.find();
+    res.json(rooms);
+  } catch (err) {
+    console.error("Error fetching rooms:", err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 // Add a new room
 router.post('/', async (req, res) => {
-  const room = new Room(req.body);
-  await room.save();
-  res.json(room);
+  try {
+    const room = new Room(req.body);
+    await room.save();
+    res.json(room);
+  } catch (err) {
+    console.error("Error adding room:", err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
-// Add a bed to a room
+// Add a bed to a room (price optional)
 router.post('/:roomNo/bed', async (req, res) => {
   const { roomNo } = req.params;
-  const { bedNo, category, price } = req.body;
+  let { bedNo, price } = req.body;
 
   try {
-    if (!bedNo || !category || !price) {
-      return res.status(400).json({ message: 'Missing bedNo, category, or price' });
+    if (!bedNo) {
+      return res.status(400).json({ message: 'Missing bedNo' });
     }
 
     const room = await Room.findOne({ roomNo });
@@ -33,8 +43,14 @@ router.post('/:roomNo/bed', async (req, res) => {
       return res.status(400).json({ message: 'Bed number already exists in this room' });
     }
 
-    room.beds.push({ bedNo, category, price });
+    // If price is not provided, set it to null
+    if (price === undefined || price === '') {
+      price = null;
+    }
+
+    room.beds.push({ bedNo, price });
     await room.save();
+
     res.json({ message: 'Bed added successfully', room });
   } catch (err) {
     console.error("Error adding bed:", err);
@@ -54,7 +70,7 @@ router.put('/:roomNo/bed/:bedNo', async (req, res) => {
     const bed = room.beds.find(b => b.bedNo === bedNo);
     if (!bed) return res.status(404).json({ message: 'Bed not found' });
 
-    bed.price = price;
+    bed.price = price ?? null;
     await room.save();
     res.json(bed);
   } catch (err) {

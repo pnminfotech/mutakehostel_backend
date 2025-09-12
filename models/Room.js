@@ -3,9 +3,9 @@ const mongoose = require('mongoose');
 
 const bedSchema = new mongoose.Schema({
   bedNo: String,
-  category: String,
-  price: Number
+  price: { type: Number, default: null }
 });
+
 
 const roomSchema = new mongoose.Schema({
   roomNo: String,
