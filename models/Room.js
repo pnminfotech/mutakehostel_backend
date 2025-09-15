@@ -10,6 +10,7 @@ const bedSchema = new mongoose.Schema({
 const roomSchema = new mongoose.Schema({
   roomNo: String,
   floorNo: String,
+  category: { type: String, default: "" },
   beds: [bedSchema]
 });
 
