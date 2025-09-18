@@ -9,6 +9,7 @@ const ProjectRoutes = require('./routes/Project')
 const roomRoutes = require('./routes/roomRoutes');
 const lightBillRoutes = require("./routes/lightBillRoutes");
 const otherExpenseRoutes = require('./routes/otherExpenseRoutes');
+const uploadRoutes = require('./routes/uploadRoutes'); 
 
 const connectDB = require('./config/db'); // Database connection logic
 const jwt = require('jsonwebtoken');
@@ -32,7 +33,7 @@ app.use("/api/suppliers", supplierRoutes);
 app.use("/api", ProjectRoutes)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use('/api/rooms', roomRoutes);
-
+app.use('/api/uploads', uploadRoutes);   
 // Routes
 app.use("/api/light-bill", lightBillRoutes);
 
