@@ -64,26 +64,26 @@ const getNextSrNo = async (req, res) => {
   }
 };
 
-const saveForm = async (req, res) => {
-  try {
-    // Use atomic findOneAndUpdate to get the next srNo
-    const counter = await Counter.findOneAndUpdate(
-      { name: "form_srno" },
-      { $inc: { seq: 1 } },
-      { new: true, upsert: true } // Create if doesn't exist
-    );
+// const saveForm = async (req, res) => {
+//   try {
+//     // Use atomic findOneAndUpdate to get the next srNo
+//     const counter = await Counter.findOneAndUpdate(
+//       { name: "form_srno" },
+//       { $inc: { seq: 1 } },
+//       { new: true, upsert: true } // Create if doesn't exist
+//     );
 
-    req.body.srNo = counter.seq.toString(); // Always unique now
+//     req.body.srNo = counter.seq.toString(); // Always unique now
 
-    const newForm = new Form(req.body);
-    await newForm.save();
+//     const newForm = new Form(req.body);
+//     await newForm.save();
 
-    res.status(201).json({ message: 'Form submitted successfully', form: newForm });
-  } catch (error) {
-    console.error('❌ Error in saveForm:', error);
-    res.status(500).json({ message: 'Error submitting form', error: error.message });
-  }
-};
+//     res.status(201).json({ message: 'Form submitted successfully', form: newForm });
+//   } catch (error) {
+//     console.error('❌ Error in saveForm:', error);
+//     res.status(500).json({ message: 'Error submitting form', error: error.message });
+//   }
+// };
 
 
 
@@ -364,5 +364,32 @@ const rentAmountDel = async (req, res) => {
     res.status(500).json({ message: "Failed to remove rent", error });
   }
 };
+
+
+const saveForm = async (req, res) => {
+  try {
+    // Use atomic findOneAndUpdate to get the next srNo
+    const counter = await Counter.findOneAndUpdate(
+      { name: "form_srno" },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+
+    req.body.srNo = counter.seq.toString(); // Always unique now
+
+    // 👇 ADD THIS LOG
+    console.log("📥 Incoming payload to saveForm:", JSON.stringify(req.body, null, 2));
+    console.log("📂 Documents received:", req.body.documents);
+
+    const newForm = new Form(req.body);
+    await newForm.save();
+
+    res.status(201).json({ message: 'Form submitted successfully', form: newForm });
+  } catch (error) {
+    console.error('❌ Error in saveForm:', error);
+    res.status(500).json({ message: 'Error submitting form', error: error.message });
+  }
+};
+
 
 module.exports = { getNextSrNo, rentAmountDel , processLeave , getFormById , getForms, checkAndArchiveLeaves, updateProfile , getArchivedForms,saveLeaveDate, restoreForm  , archiveForm , saveForm, getAllForms, updateForm, deleteForm ,getDuplicateForms };
