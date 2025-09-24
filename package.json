@@ -6,6 +6,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "fs": "^0.0.1-security",
+    "fuse.js": "^7.1.0",
     "json2xls": "^0.1.2",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.511.0",
@@ -13,6 +14,7 @@
     "mongoose": "^8.18.1",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
+    "openai": "^5.22.0",
     "recharts": "^2.15.3",
     "sharp": "^0.34.3"
   },
