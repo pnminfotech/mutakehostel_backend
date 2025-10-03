@@ -1,9 +1,13 @@
+// controllers/formController.js
 const Form = require('../models/formModels');
 const Archive = require('../models/archiveSchema');
-const DuplicateForm = require('../models/DuplicateForm'); // Import the DuplicateForm model
+const DuplicateForm = require('../models/DuplicateForm');
 const cron = require("node-cron");
 const Counter = require('../models/counterModel');
 
+// ───────────────────────────────────────────────────────────────────────────────
+// LEAVE processing + daily archive
+// ───────────────────────────────────────────────────────────────────────────────
 const processLeave = async (req, res) => {
   try {
     const { formId, leaveDate } = req.body;
@@ -14,14 +18,12 @@ const processLeave = async (req, res) => {
     const currentDate = new Date().toISOString().split("T")[0];
 
     if (leaveDate <= currentDate) {
-      // If the leave date is past or current, move the record to archive
       const archivedData = new Archive({ ...form.toObject(), leaveDate });
       await archivedData.save();
       await Form.findByIdAndDelete(formId);
 
       return res.status(200).json({ message: "Record archived successfully." });
     } else {
-      // If leave date is in the future, update the form record
       form.leaveDate = leaveDate;
       await form.save();
       return res.status(200).json({ message: "Leave date saved. It will be archived on the leave date." });
@@ -50,10 +52,9 @@ cron.schedule("0 0 * * *", async () => {
   }
 });
 
-// @desc Save form data to the database
-// @route POST /api/forms
-// @access Public
-
+// ───────────────────────────────────────────────────────────────────────────────
+// Sr No (display only; server still assigns real one in create)
+// ───────────────────────────────────────────────────────────────────────────────
 const getNextSrNo = async (req, res) => {
   try {
     const counter = await Counter.findOne({ name: "form_srno" });
@@ -64,33 +65,35 @@ const getNextSrNo = async (req, res) => {
   }
 };
 
-// const saveForm = async (req, res) => {
-//   try {
-//     // Use atomic findOneAndUpdate to get the next srNo
-//     const counter = await Counter.findOneAndUpdate(
-//       { name: "form_srno" },
-//       { $inc: { seq: 1 } },
-//       { new: true, upsert: true } // Create if doesn't exist
-//     );
+// ───────────────────────────────────────────────────────────────────────────────
+// (Legacy) saveForm – kept for compatibility, not bound to POST /forms route
+// ───────────────────────────────────────────────────────────────────────────────
+const saveForm = async (req, res) => {
+  try {
+    const counter = await Counter.findOneAndUpdate(
+      { name: "form_srno" },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
 
-//     req.body.srNo = counter.seq.toString(); // Always unique now
+    req.body.srNo = counter.seq.toString();
 
-//     const newForm = new Form(req.body);
-//     await newForm.save();
+    console.log("📥 Incoming payload to saveForm:", JSON.stringify(req.body, null, 2));
+    console.log("📂 Documents received:", req.body.documents);
 
-//     res.status(201).json({ message: 'Form submitted successfully', form: newForm });
-//   } catch (error) {
-//     console.error('❌ Error in saveForm:', error);
-//     res.status(500).json({ message: 'Error submitting form', error: error.message });
-//   }
-// };
+    const newForm = new Form(req.body);
+    await newForm.save();
 
+    res.status(201).json({ message: 'Form submitted successfully', form: newForm });
+  } catch (error) {
+    console.error('❌ Error in saveForm:', error);
+    res.status(500).json({ message: 'Error submitting form', error: error.message });
+  }
+};
 
-
-
-// @desc Get all forms from the database
-// @route GET /api/forms
-// @access Public
+// ───────────────────────────────────────────────────────────────────────────────
+// READ ALL
+// ───────────────────────────────────────────────────────────────────────────────
 const getAllForms = async (req, res) => {
   try {
     const forms = await Form.find();
@@ -100,22 +103,17 @@ const getAllForms = async (req, res) => {
   }
 };
 
-// @desc Update rent for a specific form
-// @route PUT /api/forms/:id
-// @access Public
-// @desc Update rent for a specific form
-// @route PUT /api/forms/:id
-// @access Public
-
+// ───────────────────────────────────────────────────────────────────────────────
+// RENT update helpers
+// ───────────────────────────────────────────────────────────────────────────────
 const getMonthYear = (date) => {
   const d = new Date(date);
   return `${d.toLocaleString('default', { month: 'short' })}-${d.getFullYear().toString().slice(-2)}`;
 };
 
-
 const updateForm = async (req, res) => {
   const { id } = req.params;
-  const { rentAmount, date, month } = req.body; // Now taking both date and month
+  const { rentAmount, date, month } = req.body;
 
   try {
     const form = await Form.findById(id);
@@ -124,10 +122,8 @@ const updateForm = async (req, res) => {
     const rentIndex = form.rents.findIndex((rent) => rent.month === month);
 
     if (rentIndex !== -1) {
-      // Update existing rent entry
       form.rents[rentIndex] = { rentAmount: Number(rentAmount), date: new Date(date), month };
     } else {
-      // Add a new entry
       form.rents.push({ rentAmount: Number(rentAmount), date: new Date(date), month });
     }
 
@@ -138,32 +134,22 @@ const updateForm = async (req, res) => {
   }
 };
 
-
-// @desc Delete a form and move its data to the DuplicateForm model
-// @route DELETE /api/forms/:id
-// @access Public
 const deleteForm = async (req, res) => {
   const { id } = req.params;
 
   try {
-    // Find the form to delete
     const formToDelete = await Form.findById(id);
-
     if (!formToDelete) {
       return res.status(404).json({ message: 'Form not found' });
     }
 
-    // Create a new duplicate form using the data from the original form
     const duplicateForm = new DuplicateForm({
       originalFormId: formToDelete._id,
-      formData: formToDelete, // Save all the form's data
+      formData: formToDelete,
       deletedAt: Date.now(),
     });
 
-    // Save the duplicate form
     await duplicateForm.save();
-
-    // Delete the original form
     await Form.findByIdAndDelete(id);
 
     res.status(200).json({ message: 'Form deleted and saved as a duplicate successfully' });
@@ -171,6 +157,7 @@ const deleteForm = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 const getDuplicateForms = async (req, res) => {
   try {
     const duplicateForms = await DuplicateForm.find().populate('originalFormId').exec();
@@ -199,13 +186,11 @@ const saveLeaveDate = async (req, res) => {
   }
 };
 
-// Function to check and archive expired leave dates
 const checkAndArchiveLeaves = async () => {
   try {
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Ensure comparison is date-only
+    today.setHours(0, 0, 0, 0);
 
-    // Find forms where leaveDate is exactly today
     const expiredForms = await Form.find({ leaveDate: today });
 
     for (let form of expiredForms) {
@@ -218,20 +203,14 @@ const checkAndArchiveLeaves = async () => {
   }
 };
 
-// Schedule this to run every midnight
-setInterval(checkAndArchiveLeaves, 24 * 60 * 60 * 1000); 
+setInterval(checkAndArchiveLeaves, 24 * 60 * 60 * 1000);
 
-// Function to archive and delete form
 const archiveAndDeleteForm = async (form) => {
   const archivedData = new Archive({ ...form._doc });
   await archivedData.save();
   await Form.findByIdAndDelete(form._id);
 };
 
-// Schedule the archive check to run daily at midnight
-
-
-// Fetch all forms with leave dates to display them on the frontend
 const getForms = async (req, res) => {
   try {
     const forms = await Form.find({});
@@ -251,7 +230,7 @@ const archiveForm = async (req, res) => {
     }
 
     const archivedData = new Archive({
-      ...formToArchive._doc, // Copy all data
+      ...formToArchive._doc,
     });
 
     await archivedData.save();
@@ -262,7 +241,6 @@ const archiveForm = async (req, res) => {
     res.status(500).json({ message: 'Error archiving form: ' + error.message });
   }
 };
-
 
 const restoreForm = async (req, res) => {
   const { id } = req.body;
@@ -276,16 +254,11 @@ const restoreForm = async (req, res) => {
       return res.status(404).json({ message: 'Archived data not found' });
     }
 
-    // Create a new form document using archived data (excluding leaveDate)
     const { leaveDate, ...restoredData } = archivedData.toObject();
 
     const restoredForm = new Form(restoredData);
-
-    // Save the restored form data
     await restoredForm.save();
-    console.log('Restored Data:', restoredForm);
 
-    // Remove the record from the archive
     await Archive.findByIdAndDelete(id);
     console.log('Archived Data Deleted:', id);
 
@@ -296,24 +269,20 @@ const restoreForm = async (req, res) => {
   }
 };
 
-
-
 const getArchivedForms = async (req, res) => {
   try {
-    const archivedForms = await Archive.find(); // Fetch all archived forms
+    const archivedForms = await Archive.find();
     res.status(200).json(archivedForms);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching archived forms: ' + error.message });
   }
 };
 
-// Update form details
 const updateProfile = async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
 
-    // Find the entity by ID and update it with new data
     const updatedForm = await Form.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
@@ -328,7 +297,6 @@ const updateProfile = async (req, res) => {
     res.status(500).json({ message: "Server Error", error });
   }
 };
-
 
 const getFormById = async (req, res) => {
   try {
@@ -345,16 +313,13 @@ const getFormById = async (req, res) => {
   }
 };
 
-//for rentAmount updation Logic 0 
-
 const rentAmountDel = async (req, res) => {
-  const { formId, monthYear } = req.params; // Use monthYear instead of month
+  const { formId, monthYear } = req.params;
 
   try {
     const form = await Form.findById(formId);
     if (!form) return res.status(404).json({ message: "Form not found" });
 
-    // Filter out the rent entry for the specified month
     form.rents = form.rents.filter((rent) => rent.month !== monthYear);
     await form.save();
 
@@ -365,31 +330,21 @@ const rentAmountDel = async (req, res) => {
   }
 };
 
-
-const saveForm = async (req, res) => {
-  try {
-    // Use atomic findOneAndUpdate to get the next srNo
-    const counter = await Counter.findOneAndUpdate(
-      { name: "form_srno" },
-      { $inc: { seq: 1 } },
-      { new: true, upsert: true }
-    );
-
-    req.body.srNo = counter.seq.toString(); // Always unique now
-
-    // 👇 ADD THIS LOG
-    console.log("📥 Incoming payload to saveForm:", JSON.stringify(req.body, null, 2));
-    console.log("📂 Documents received:", req.body.documents);
-
-    const newForm = new Form(req.body);
-    await newForm.save();
-
-    res.status(201).json({ message: 'Form submitted successfully', form: newForm });
-  } catch (error) {
-    console.error('❌ Error in saveForm:', error);
-    res.status(500).json({ message: 'Error submitting form', error: error.message });
-  }
+module.exports = {
+  getNextSrNo,
+  rentAmountDel,
+  processLeave,
+  getFormById,
+  getForms,
+  checkAndArchiveLeaves,
+  updateProfile,
+  getArchivedForms,
+  saveLeaveDate,
+  restoreForm,
+  archiveForm,
+  saveForm,
+  getAllForms,
+  updateForm,
+  deleteForm,
+  getDuplicateForms
 };
-
-
-module.exports = { getNextSrNo, rentAmountDel , processLeave , getFormById , getForms, checkAndArchiveLeaves, updateProfile , getArchivedForms,saveLeaveDate, restoreForm  , archiveForm , saveForm, getAllForms, updateForm, deleteForm ,getDuplicateForms };
