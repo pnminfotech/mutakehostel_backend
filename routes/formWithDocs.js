@@ -97,7 +97,7 @@ router.post("/forms-with-docs", upload.array("documents", 10), async (req, res) 
         data: compressed,
       });
 
-      const relation = ["Self","Father","Mother","Husband"].includes(relations[i]) ? relations[i] : "Self";
+      const relation = ["Self","Father","Mother","Husband","Sister","Brother"].includes(relations[i]) ? relations[i] : "Self";
 
       formPayload.documents.push({
         fileName: f.originalname,
