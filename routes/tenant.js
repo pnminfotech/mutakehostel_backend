@@ -1,41 +1,53 @@
+// routes/tenantRoutes.js
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const QRCode = require('qrcode');
 
 const Form = require('../models/formModels');
-const OtpSession = require('../models/OtpSession'); // you already have it
+const OtpSession = require('../models/OtpSession');
 const authTenant = require('../middleware/tenantAuth');
 const { docsUpload, avatarUpload, ekycUpload } = require('../lib/upload');
 const Payment = require('../models/Payment');
+
+// Debug ping (optional)
+router.get('/auth/ping', (req, res) => res.json({ ok: true, at: '/api/tenant/auth/ping' }));
+
 // ---------- AUTH (OTP) ----------
 router.post('/auth/request-otp', async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ message: "phone required" });
 
   const code = process.env.NODE_ENV === 'production'
-    ? String(Math.floor(100000 + Math.random()*900000))
+    ? String(Math.floor(100000 + Math.random() * 900000))
     : '123456';
 
   await OtpSession.deleteMany({ phone });
-  await OtpSession.create({ phone, code, expiresAt: new Date(Date.now()+5*60*1000) });
+  await OtpSession.create({ phone, code, expiresAt: new Date(Date.now() + 5 * 60 * 1000) });
 
-  // TODO: integrate SMS in prod
   res.json({ ok: true, devCode: process.env.NODE_ENV === 'production' ? undefined : code });
 });
 
 router.post('/auth/verify', async (req, res) => {
   const { phone, code } = req.body;
   if (!phone || !code) return res.status(400).json({ message: "phone & code required" });
+
   const sess = await OtpSession.findOne({ phone, code });
   if (!sess || new Date(sess.expiresAt) < new Date()) {
     return res.status(400).json({ message: "Invalid/expired code" });
   }
+
   const me = await Form.findOne({ phoneNo: Number(phone) });
   if (!me) return res.status(404).json({ message: "Tenant not found" });
 
   await OtpSession.deleteMany({ phone });
-  const token = jwt.sign({ id: me._id }, process.env.JWT_SECRET || "dev_secret", { expiresIn: '30d' });
+
+  const token = jwt.sign(
+    { id: me._id },
+    process.env.JWT_SECRET || 'dev_secret',
+    { expiresIn: '30d' }
+  );
+
   res.json({ token });
 });
 
@@ -45,7 +57,7 @@ router.get('/me', authTenant, async (req, res) => res.json(req.tenant));
 // ---------- PROFILE ----------
 router.put('/profile', authTenant, async (req, res) => {
   const up = {};
-  ['name','email','address','companyAddress','emergencyContact','dob'].forEach(k=>{
+  ['name','email','address','companyAddress','emergencyContact','dob'].forEach(k => {
     if (req.body[k] != null) up[k] = req.body[k];
   });
   Object.assign(req.tenant, up);
@@ -84,7 +96,7 @@ router.get('/rents', authTenant, async (req, res) => {
   const paidSet = new Set(
     (t.rents || [])
       .filter(r => r?.date && Number(r.rentAmount) > 0)
-      .map(r => { const d=new Date(r.date); return `${d.getFullYear()}-${d.getMonth()}`; })
+      .map(r => { const d = new Date(r.date); return `${d.getFullYear()}-${d.getMonth()}`; })
   );
 
   let totalDue = 0;
@@ -96,7 +108,7 @@ router.get('/rents', authTenant, async (req, res) => {
   res.json({ currentYear: y, totalDue, rents: t.rents || [] });
 });
 
-// ---------- LEAVE (request) ----------
+// ---------- LEAVE ----------
 router.post('/leave', authTenant, async (req, res) => {
   const { leaveDate } = req.body;
   if (!leaveDate) return res.status(400).json({ message: "leaveDate required" });
@@ -107,7 +119,7 @@ router.post('/leave', authTenant, async (req, res) => {
 
 // ---------- ANNOUNCEMENTS ----------
 router.get('/announcements', authTenant, async (_req, res) => {
-  res.json([]); // plug your real announcements if you have a model
+  res.json([]); // replace with real announcements
 });
 
 // ---------- eKYC ----------
@@ -140,7 +152,7 @@ router.post('/ekyc', authTenant, ekycUpload.fields([
   res.json({ ok: true, ekyc: req.tenant.ekyc });
 });
 
-// ---------- UPI (QR + deep link) ----------
+// ---------- UPI ----------
 router.get('/upi-qr', async (req, res) => {
   const amount = Number(req.query.amount || 0);
   const note = String(req.query.note || 'Rent');
@@ -162,14 +174,12 @@ router.get('/upi-intent', (req, res) => {
   res.redirect(url);
 });
 
-
-
+// ---------- PAYMENTS ----------
 router.get('/payments/my', authTenant, async (req, res) => {
   const list = await Payment.find({ tenant: req.tenant._id }).sort({ createdAt: -1 });
   res.json(list);
 });
 
-// Tenant: report a payment (UTR after UPI)
 router.post('/payments/report', authTenant, async (req, res) => {
   const { amount, utr, note, month, year } = req.body;
   if (!amount) return res.status(400).json({ message: 'amount required' });
@@ -185,9 +195,5 @@ router.post('/payments/report', authTenant, async (req, res) => {
 
   res.json({ ok: true, payment: p });
 });
-
-
-
-
 
 module.exports = router;
