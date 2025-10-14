@@ -1,7 +1,7 @@
 // controllers/forms/createWithOptionalInvite.js
 const mongoose = require("mongoose");
 const Invite = require("../../models/Invite");
-const Form = require("../../models/Form");               // shim -> models/formModels
+const Form = require("../../models/formModels");                 // shim -> models/formModels
 const Counter = require("../../models/counterModel");    // uses { name: "form_srno", seq: Number }
 
 // ───────────────────────────────────────────────────────────────────────────────

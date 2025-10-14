@@ -1,23 +1,10 @@
 const express = require("express");
+const { createLeaveRequest, getTenantLeaves } = require("../controllers/leaveController");
+const authTenant = require("../middleware/tenantAuth");
+
 const router = express.Router();
-const {
-  createLeave,
-  getMyLeaves,
-  adminListLeaves,
-  adminSetStatus,
-  adminCancelLeave,
-} = require("../controllers/leaveController");
 
-const { authMiddleware } = require("../middlewares/authMiddleware"); // must set req.user
-const { isAdmin } = require("../middlewares/roleMiddleware");
-
-// Tenant endpoints
-router.post("/tenant/leave", authMiddleware, createLeave);
-router.get("/tenant/leave/my", authMiddleware, getMyLeaves);
-
-// Admin endpoints
-router.get("/admin/leave", authMiddleware, isAdmin, adminListLeaves);
-router.patch("/admin/leave/:id", authMiddleware, isAdmin, adminSetStatus);
-router.patch("/admin/leave/:id/cancel", authMiddleware, isAdmin, adminCancelLeave);
+router.post("/tenant/leave", authTenant, createLeaveRequest);
+router.get("/tenant/leave", authTenant, getTenantLeaves);
 
 module.exports = router;

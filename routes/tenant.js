@@ -42,12 +42,13 @@ router.post('/auth/verify', async (req, res) => {
 
   await OtpSession.deleteMany({ phone });
 
-  const token = jwt.sign(
-    { id: me._id },
-    process.env.JWT_SECRET || 'dev_secret',
-    { expiresIn: '30d' }
-  );
-
+  // inside POST /auth/verify
+const token = jwt.sign(
+  { id: me._id.toString() },   // role not required since middleware doesn’t check it
+  'dev_secret',                // <— MUST MATCH middleware
+  { expiresIn: '30d' }
+);
+//
   res.json({ token });
 });
 
@@ -99,12 +100,21 @@ router.get('/rents', authTenant, async (req, res) => {
       .map(r => { const d = new Date(r.date); return `${d.getFullYear()}-${d.getMonth()}`; })
   );
 
-  let totalDue = 0;
-  const base = Number(t.baseRent || 0);
-  for (let i = 0; i <= now.getMonth(); i++) {
-    const key = `${y}-${i}`;
-    if (!paidSet.has(key)) totalDue += base;
-  }
+ // start counting from the later of: Jan 1st this year OR month after joining
+ const base = Number(t.baseRent || 0);
+ let totalDue = 0;
+ const join = t.joiningDate ? new Date(t.joiningDate) : null;
+ const startOfYear = new Date(y, 0, 1);
+ // month after joining
+ const startAfterJoin = join ? new Date(join.getFullYear(), join.getMonth() + 1, 1) : startOfYear;
+ const start = startAfterJoin > startOfYear ? startAfterJoin : startOfYear;
+
+ const cursor = new Date(start);
+ while (cursor.getFullYear() === y && cursor <= now) {
+   const key = `${cursor.getFullYear()}-${cursor.getMonth()}`;
+   if (!paidSet.has(key)) totalDue += base;
+   cursor.setMonth(cursor.getMonth() + 1);
+ }
   res.json({ currentYear: y, totalDue, rents: t.rents || [] });
 });
 
@@ -180,6 +190,40 @@ router.get('/payments/my', authTenant, async (req, res) => {
   res.json(list);
 });
 
+// router.post('/payments/report', authTenant, async (req, res) => {
+//   const { amount, utr, note, month, year } = req.body;
+//   if (!amount) return res.status(400).json({ message: 'amount required' });
+
+//  const p = await Payment.create({
+//     tenant: req.tenant._id,
+//     amount: Number(amount),
+//     utr: (utr || '').trim(),
+//     note: (note || '').trim(),
+//     month: (month ?? null),
+//     year:  (year ?? null),
+//     status: 'reported',
+//   });
+//  // 🔔 ALSO create a PaymentNotification so the admin can see/act
+//   try {
+//     const PaymentNotification = require('../models/PaymentNotification');
+//     await PaymentNotification.create({
+//       tenantId: req.tenant._id,
+//       paymentId: p._id,
+//       amount: p.amount,
+//       month: p.month,
+//       year: p.year,
+//       utr: p.utr,
+//       note: p.note,
+//       status: 'pending',
+//       read: false,
+//     });
+//   } catch (e) {
+//     console.error('Failed to create PaymentNotification:', e);
+//     // not fatal for the tenant flow
+//   }
+//   res.json({ ok: true, payment: p });
+// });
+// routes/tenantRoutes.js
 router.post('/payments/report', authTenant, async (req, res) => {
   const { amount, utr, note, month, year } = req.body;
   if (!amount) return res.status(400).json({ message: 'amount required' });
@@ -191,9 +235,31 @@ router.post('/payments/report', authTenant, async (req, res) => {
     note: (note || '').trim(),
     month: (month ?? null),
     year:  (year ?? null),
+    status: 'reported',
   });
 
+ // 🔔 Create an admin-facing notification
+ try {
+   const PaymentNotification = require('../models/PaymentNotification');
+   const payload = {
+     tenantId: req.tenant._id,
+     paymentId: p._id,
+     amount: p.amount,
+     month: p.month,
+     year: p.year,
+     utr: p.utr,
+     note: p.note,
+     status: 'pending',
+     read: false,
+   };
+   console.log('[notif] creating PaymentNotification =>', payload);
+   const created = await PaymentNotification.create(payload);
+   console.log('[notif] created id:', created._id);
+ } catch (e) {
+   console.error('[notif] FAILED to create PaymentNotification:', e);
+ }
   res.json({ ok: true, payment: p });
 });
+
 
 module.exports = router;
