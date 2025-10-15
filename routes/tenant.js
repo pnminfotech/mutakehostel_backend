@@ -297,28 +297,102 @@ router.get('/auth/ping', (req, res) => res.json({ ok: true, at: '/api/tenant/aut
 /* ------------------------------------------------------------------ */
 /* AUTH (OTP)                                                          */
 /* ------------------------------------------------------------------ */
+// router.post('/auth/request-otp', async (req, res) => {
+//   try {
+//     const phoneNorm = normalizePhone(req.body?.phone);
+//     if (!phoneNorm) return res.status(400).json({ message: "phone required" });
+
+//     const code =
+//       (process.env.NODE_ENV === 'production' && !DEV_SHOW_OTP)
+//         ? String(Math.floor(100000 + Math.random() * 900000))
+//         : '123456';
+
+//     await OtpSession.deleteMany({ phone: phoneNorm });
+//     await OtpSession.create({
+//       phone: phoneNorm,
+//       code,
+//       expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
+//     });
+
+//     // Return devCode only if DEV_SHOW_OTP=1 (safe for live testing)
+//     res.json({
+//       ok: true,
+//       expiresIn: 300,
+//       devCode: DEV_SHOW_OTP ? code : undefined
+//     });
+//   } catch (e) {
+//     console.error('request-otp error:', e);
+//     res.status(500).json({ message: 'request-otp failed' });
+//   }
+// });
+
+// router.post('/auth/verify', async (req, res) => {
+//   try {
+//     const phoneNorm = normalizePhone(req.body?.phone);
+//     const code = String(req.body?.code || req.body?.otp || '').trim();
+
+//     if (!phoneNorm || !code) {
+//       return res.status(400).json({ message: "phone & code required" });
+//     }
+
+//     const sess = await OtpSession.findOne({ phone: phoneNorm, code });
+//     if (!sess || new Date(sess.expiresAt) < new Date()) {
+//       return res.status(400).json({ message: "Invalid/expired code" });
+//     }
+
+//     // Try to find tenant with phoneNo stored either as string (normalized) OR legacy numeric
+//     let me = await Form.findOne({
+//       $or: [
+//         { phoneNo: phoneNorm },
+//         { phoneNo: Number(phoneNorm) }
+//       ]
+//     });
+
+//     if (!me) {
+//       return res.status(404).json({ message: "Tenant not found" });
+//     }
+
+//     await OtpSession.deleteMany({ phone: phoneNorm });
+
+//     const token = jwt.sign(
+//       { id: me._id.toString() },
+//       TENANT_JWT_SECRET, // must match middleware
+//       { expiresIn: '30d' }
+//     );
+
+//     res.json({ token });
+//   } catch (e) {
+//     console.error('verify error:', e);
+//     res.status(500).json({ message: 'verify failed' });
+//   }
+// });
+
+/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* AUTH (OTP) – always echo code back for frontend (DEV-only)         */
+/* ------------------------------------------------------------------ */
 router.post('/auth/request-otp', async (req, res) => {
   try {
     const phoneNorm = normalizePhone(req.body?.phone);
     if (!phoneNorm) return res.status(400).json({ message: "phone required" });
 
-    const code =
-      (process.env.NODE_ENV === 'production' && !DEV_SHOW_OTP)
-        ? String(Math.floor(100000 + Math.random() * 900000))
-        : '123456';
+    // Always random 6-digit
+    const code = String(Math.floor(100000 + Math.random() * 900000));
 
+    // 1 OTP row per phone (simplest). If you want multiple, remove deleteMany.
     await OtpSession.deleteMany({ phone: phoneNorm });
-    await OtpSession.create({
+    const sess = await OtpSession.create({
       phone: phoneNorm,
       code,
       expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
     });
 
-    // Return devCode only if DEV_SHOW_OTP=1 (safe for live testing)
+    // 👇 Echo back code + otpId so frontend can display
     res.json({
       ok: true,
-      expiresIn: 300,
-      devCode: DEV_SHOW_OTP ? code : undefined
+      otpId: String(sess._id),
+      code,              // <-- visible to client
+      expiresIn: 300
     });
   } catch (e) {
     console.error('request-otp error:', e);
@@ -330,33 +404,117 @@ router.post('/auth/verify', async (req, res) => {
   try {
     const phoneNorm = normalizePhone(req.body?.phone);
     const code = String(req.body?.code || req.body?.otp || '').trim();
+    const otpId = req.body?.otpId ? String(req.body.otpId) : null;
 
     if (!phoneNorm || !code) {
       return res.status(400).json({ message: "phone & code required" });
     }
 
-    const sess = await OtpSession.findOne({ phone: phoneNorm, code });
+    // Prefer otpId when provided, else fall back to (phone+code)
+    let sess = null;
+    if (otpId) {
+      sess = await OtpSession.findOne({ _id: otpId, phone: phoneNorm, code });
+    } else {
+      sess = await OtpSession.findOne({ phone: phoneNorm, code }).sort({ _id: -1 });
+    }
+
     if (!sess || new Date(sess.expiresAt) < new Date()) {
       return res.status(400).json({ message: "Invalid/expired code" });
     }
 
-    // Try to find tenant with phoneNo stored either as string (normalized) OR legacy numeric
-    let me = await Form.findOne({
+    // Find tenant by phone (string last10 or legacy number)
+    const me = await Form.findOne({
       $or: [
         { phoneNo: phoneNorm },
         { phoneNo: Number(phoneNorm) }
       ]
     });
+    if (!me) return res.status(404).json({ message: "Tenant not found" });
 
-    if (!me) {
-      return res.status(404).json({ message: "Tenant not found" });
-    }
-
+    // One-time OTP
     await OtpSession.deleteMany({ phone: phoneNorm });
 
     const token = jwt.sign(
       { id: me._id.toString() },
-      TENANT_JWT_SECRET, // must match middleware
+      TENANT_JWT_SECRET,       // must match your authTenant middleware
+      { expiresIn: '30d' }
+    );
+
+    res.json({ token });
+  } catch (e) {
+    console.error('verify error:', e);
+    res.status(500).json({ message: 'verify failed' });
+  }
+});
+/* ------------------------------------------------------------------ */
+/* AUTH (OTP) – always echo code back for frontend (DEV-only)         */
+/* ------------------------------------------------------------------ */
+router.post('/auth/request-otp', async (req, res) => {
+  try {
+    const phoneNorm = normalizePhone(req.body?.phone);
+    if (!phoneNorm) return res.status(400).json({ message: "phone required" });
+
+    // Always random 6-digit
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+
+    // 1 OTP row per phone (simplest). If you want multiple, remove deleteMany.
+    await OtpSession.deleteMany({ phone: phoneNorm });
+    const sess = await OtpSession.create({
+      phone: phoneNorm,
+      code,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
+    });
+
+    // 👇 Echo back code + otpId so frontend can display
+    res.json({
+      ok: true,
+      otpId: String(sess._id),
+      code,              // <-- visible to client
+      expiresIn: 300
+    });
+  } catch (e) {
+    console.error('request-otp error:', e);
+    res.status(500).json({ message: 'request-otp failed' });
+  }
+});
+
+router.post('/auth/verify', async (req, res) => {
+  try {
+    const phoneNorm = normalizePhone(req.body?.phone);
+    const code = String(req.body?.code || req.body?.otp || '').trim();
+    const otpId = req.body?.otpId ? String(req.body.otpId) : null;
+
+    if (!phoneNorm || !code) {
+      return res.status(400).json({ message: "phone & code required" });
+    }
+
+    // Prefer otpId when provided, else fall back to (phone+code)
+    let sess = null;
+    if (otpId) {
+      sess = await OtpSession.findOne({ _id: otpId, phone: phoneNorm, code });
+    } else {
+      sess = await OtpSession.findOne({ phone: phoneNorm, code }).sort({ _id: -1 });
+    }
+
+    if (!sess || new Date(sess.expiresAt) < new Date()) {
+      return res.status(400).json({ message: "Invalid/expired code" });
+    }
+
+    // Find tenant by phone (string last10 or legacy number)
+    const me = await Form.findOne({
+      $or: [
+        { phoneNo: phoneNorm },
+        { phoneNo: Number(phoneNorm) }
+      ]
+    });
+    if (!me) return res.status(404).json({ message: "Tenant not found" });
+
+    // One-time OTP
+    await OtpSession.deleteMany({ phone: phoneNorm });
+
+    const token = jwt.sign(
+      { id: me._id.toString() },
+      TENANT_JWT_SECRET,       // must match your authTenant middleware
       { expiresIn: '30d' }
     );
 
@@ -367,7 +525,6 @@ router.post('/auth/verify', async (req, res) => {
   }
 });
 
-/* ------------------------------------------------------------------ */
 /* ME                                                                  */
 /* ------------------------------------------------------------------ */
 router.get('/me', authTenant, async (req, res) => res.json(req.tenant));
